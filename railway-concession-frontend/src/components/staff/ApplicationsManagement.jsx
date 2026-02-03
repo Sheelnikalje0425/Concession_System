@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import applicationService from '../../services/applicationService';
 import ErrorMessage from '../common/ErrorMessage';
 import SuccessMessage from '../common/SuccessMessage';
@@ -9,9 +9,11 @@ import Card from '../ui/Card';
 
 const ApplicationsManagement = () => {
   const [applications, setApplications] = useState([]);
+  const [filteredApplications, setFilteredApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [filter, setFilter] = useState('all'); // 'all', 'pending', 'approved', 'rejected'
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
@@ -22,6 +24,32 @@ const ApplicationsManagement = () => {
   useEffect(() => {
     fetchApplications();
   }, []);
+
+  const filterApplications = useCallback(() => {
+    let filtered = applications;
+    
+    switch (filter) {
+      case 'pending':
+        filtered = applications.filter(app => app.status === 'PENDING');
+        break;
+      case 'approved':
+        filtered = applications.filter(app => app.status === 'APPROVED');
+        break;
+      case 'rejected':
+        filtered = applications.filter(app => app.status === 'REJECTED');
+        break;
+      case 'all':
+      default:
+        filtered = applications;
+        break;
+    }
+    
+    setFilteredApplications(filtered);
+  }, [applications, filter]);
+
+  useEffect(() => {
+    filterApplications();
+  }, [filterApplications]);
 
   const fetchApplications = async () => {
     try {
@@ -75,10 +103,49 @@ const ApplicationsManagement = () => {
     };
 
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusClasses[status]}`}>
+      <span 
+        className={`px-2 py-1 rounded-full text-xs font-medium ${statusClasses[status]}`}>
         {status}
       </span>
     );
+  };
+
+  const getFilterButtonClass = (filterName) => {
+    return filter === filterName
+      ? 'bg-blue-600 text-white'
+      : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
+  };
+
+  // 🔹 View caste certificate (SC / ST only)
+  const handleViewCasteCertificate = async (application) => {
+    try {
+      if (!application.casteCertificate) {
+        alert('Caste certificate not uploaded');
+        return;
+      }
+
+      const fileUrl = `http://localhost:8181/${application.casteCertificate}`;
+      window.open(fileUrl, '_blank');
+
+    } catch (err) {
+      alert(err.message || 'Unable to open caste certificate');
+    }
+  };
+
+  // 🔹 View Aadhaar card
+  const handleViewAadharCard = (application) => {
+    try {
+      if (!application.aadharCard) {
+        alert('Aadhaar card not uploaded');
+        return;
+      }
+
+      const fileUrl = `http://localhost:8181/${application.aadharCard}`;
+      window.open(fileUrl, '_blank');
+
+    } catch {
+      alert('Unable to open Aadhaar card');
+    }
   };
 
   if (loading) return <LoadingSpinner text="Loading applications..." />;
@@ -96,6 +163,36 @@ const ApplicationsManagement = () => {
       {success && <SuccessMessage message={success} onDismiss={() => setSuccess('')} />}
       {error && <ErrorMessage message={error} onDismiss={() => setError('')} />}
 
+      {/* Filter Buttons */}
+      <Card>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setFilter('all')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${getFilterButtonClass('all')}`}
+          >
+            All Applications ({applications.length})
+          </button>
+          <button
+            onClick={() => setFilter('pending')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${getFilterButtonClass('pending')}`}
+          >
+            Pending ({applications.filter(app => app.status === 'PENDING').length})
+          </button>
+          <button
+            onClick={() => setFilter('approved')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${getFilterButtonClass('approved')}`}
+          >
+            Approved ({applications.filter(app => app.status === 'APPROVED').length})
+          </button>
+          <button
+            onClick={() => setFilter('rejected')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${getFilterButtonClass('rejected')}`}
+          >
+            Rejected ({applications.filter(app => app.status === 'REJECTED').length})
+          </button>
+        </div>
+      </Card>
+
       <Card>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -111,7 +208,7 @@ const ApplicationsManagement = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {applications.map((application) => (
+              {filteredApplications.map((application) => (
                 <tr key={application.appId} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     #{application.appId}
@@ -120,7 +217,7 @@ const ApplicationsManagement = () => {
                     className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:underline"
                     onClick={() => openApplicationDetails(application)}
                   >
-                    {application.student?.name || 'N/A'}
+                    {application.studentName || 'N/A'}
                     <br />
                     <span className="text-xs text-gray-500">{application.student?.id}</span>
                   </td>
@@ -152,6 +249,22 @@ const ApplicationsManagement = () => {
                     >
                       ❌ Reject
                     </Button>
+                    {(application.category === 'SC' || application.category === 'ST') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleViewCasteCertificate(application)}
+                      >
+                        📄 View Certificate
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleViewAadharCard(application)}
+                    >
+                      🆔 View Aadhaar
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -159,9 +272,9 @@ const ApplicationsManagement = () => {
           </table>
         </div>
 
-        {applications.length === 0 && (
+        {filteredApplications.length === 0 && (
           <div className="text-center py-8 text-gray-500">
-            No applications found.
+            No {filter !== 'all' ? filter : ''} applications found.
           </div>
         )}
       </Card>
@@ -199,6 +312,38 @@ const ApplicationsManagement = () => {
               </div>
             </div>
 
+            {/* 🔹 FIXED: Added Aadhaar Card viewing option */}
+            {selectedApplication.aadharCard && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Aadhaar Card
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleViewAadharCard(selectedApplication)}
+                >
+                  🆔 View Uploaded Aadhaar Card
+                </Button>
+              </div>
+            )}
+
+            {(selectedApplication.category === 'SC' || selectedApplication.category === 'ST') &&
+              selectedApplication.casteCertificate && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Caste Certificate
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleViewCasteCertificate(selectedApplication)}
+                  >
+                    📄 View Uploaded Caste Certificate
+                  </Button>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">From Station</label>
@@ -219,7 +364,7 @@ const ApplicationsManagement = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <p className="text-sm">{getStatusBadge(selectedApplication.status)}</p>
+                <div className="text-sm">{getStatusBadge(selectedApplication.status)}</div>
               </div>
             </div>
 

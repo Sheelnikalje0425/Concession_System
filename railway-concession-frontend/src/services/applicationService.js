@@ -4,7 +4,7 @@ export const applicationService = {
   // Get all applications
   getAllApplications: async () => {
     try {
-      const response = await api.get('/applications');
+      const response = await api.get('/applications/staff/applications',{withCredentials: true});
       return response.data;
     } catch (error) {
       throw new Error(error.response?.data?.error || 'Failed to fetch applications');
@@ -32,14 +32,43 @@ export const applicationService = {
   },
 
   // Create new application
-  createApplication: async (applicationData) => {
-    try {
-      const response = await api.post('/applications', applicationData);
-      return response.data;
-    } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to create application');
-    }
-  },
+  // Create new application (UPDATED for file upload)
+createApplication: async (applicationData) => {
+  try {
+    const response = await api.post(
+      '/applications',
+      applicationData,
+      {
+        headers: {
+          // IMPORTANT: multipart support
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    throw new Error(
+      error.response?.data?.error || 'Failed to create application'
+    );
+  }
+},
+
+
+  // Get caste certificate// Get caste certificate path (STAFF)
+getCasteCertificate: async (applicationId) => {
+  try {
+    const response = await api.get(
+      `/applications/${applicationId}/caste-certificate`
+    );
+    return response.data;
+  } catch (error) {
+    throw new Error(
+      error.response?.data?.error || 'Failed to fetch caste certificate'
+    );
+  }
+},
+
+
 
   // Update application status
    updateApplicationStatus: async (id, status) => {

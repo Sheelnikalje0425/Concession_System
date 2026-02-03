@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import applicationService from '../../services/applicationService';
-import studentService from '../../services/studentService';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import SuccessMessage from '../../components/common/SuccessMessage';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -8,17 +7,14 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 
 const ReportsPage = () => {
-  const [stats, setStats] = useState({});
   const [applications, setApplications] = useState([]);
-  const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [dateRange, setDateRange] = useState({
+  const [successMessage, setSuccessMessage] = useState('');
+  const [certificateRange, setCertificateRange] = useState({
     start: '',
     end: ''
   });
-  const [reportType, setReportType] = useState('applications');
 
   useEffect(() => {
     fetchReportData();
@@ -27,15 +23,8 @@ const ReportsPage = () => {
   const fetchReportData = async () => {
     try {
       setLoading(true);
-      const [appsData, statsData, studentsData] = await Promise.all([
-        applicationService.getAllApplications(),
-        applicationService.getApplicationStats(),
-        studentService.getAllStudents()
-      ]);
-
+      const appsData = await applicationService.getAllApplications();
       setApplications(appsData);
-      setStats(statsData);
-      setStudents(studentsData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -43,65 +32,72 @@ const ReportsPage = () => {
     }
   };
 
-  const handleGenerateReport = async (type) => {
+  const handleGenerateReport = async () => {
     try {
       let url;
-      switch (type) {
-        case 'applications-csv':
-          url = '/api/reports/applications/csv';
-          break;
-        default:
-          return;
+      let queryParams = '';
+      
+      // Add certificate range filter if provided
+      if (certificateRange.start || certificateRange.end) {
+        const params = new URLSearchParams();
+        if (certificateRange.start) params.append('certificateStart', certificateRange.start);
+        if (certificateRange.end) params.append('certificateEnd', certificateRange.end);
+        queryParams = `?${params.toString()}`;
+        
+        // Use the new filtered endpoint when certificate range is specified
+        url = `/api/applications/reports/applications/csv-filtered${queryParams}`;
+      } else {
+        // Use the original endpoint when no filter is applied
+        url = `/api/reports/applications/csv`;
       }
       
       window.open(url, '_blank');
-      setSuccess('Report generated successfully!');
+      setSuccessMessage('Report generated successfully!');
     } catch (err) {
       setError('Failed to generate report: ' + err.message);
     }
   };
 
-  const handleDateRangeChange = (e) => {
-    setDateRange({
-      ...dateRange,
+  const handleCertificateRangeChange = (e) => {
+    setCertificateRange({
+      ...certificateRange,
       [e.target.name]: e.target.value
     });
   };
 
-  const getStatusDistribution = () => {
-    return {
-      pending: stats.pending || 0,
-      approved: stats.approved || 0,
-      rejected: stats.rejected || 0
-    };
-  };
+  // Get applications within certificate range
+  const getApplicationsInCertificateRange = () => {
+    if (!certificateRange.start && !certificateRange.end) {
+      return applications;
+    }
 
-  const getCategoryDistribution = () => {
-    const categories = {};
-    students.forEach(student => {
-      const category = student.category || 'UNKNOWN';
-      categories[category] = (categories[category] || 0) + 1;
+    return applications.filter(app => {
+      if (!app.currentCertificateNo) return false;
+      
+      const certNo = app.currentCertificateNo.toUpperCase();
+      const startCert = certificateRange.start.toUpperCase();
+      const endCert = certificateRange.end.toUpperCase();
+      
+      // If only start is provided, return certificates >= start
+      if (certificateRange.start && !certificateRange.end) {
+        return certNo >= startCert;
+      }
+      
+      // If only end is provided, return certificates <= end
+      if (!certificateRange.start && certificateRange.end) {
+        return certNo <= endCert;
+      }
+      
+      // If both are provided, return certificates in range
+      return certNo >= startCert && certNo <= endCert;
     });
-    return categories;
-  };
-
-  const getMonthlyApplications = () => {
-    const monthlyData = {};
-    applications.forEach(app => {
-      const month = new Date(app.applicationDate).toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short' 
-      });
-      monthlyData[month] = (monthlyData[month] || 0) + 1;
-    });
-    return monthlyData;
   };
 
   if (loading) return <LoadingSpinner text="Loading reports..." />;
   if (error) return <ErrorMessage message={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -113,165 +109,147 @@ const ReportsPage = () => {
         </Button>
       </div>
 
-      {success && <SuccessMessage message={success} onDismiss={() => setSuccess('')} />}
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="text-center p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-          <div className="text-2xl font-bold">{stats.total || 0}</div>
-          <div className="text-sm">Total Applications</div>
-        </Card>
-        
-        <Card className="text-center p-4 bg-gradient-to-r from-green-500 to-green-600 text-white">
-          <div className="text-2xl font-bold">{stats.approved || 0}</div>
-          <div className="text-sm">Approved</div>
-        </Card>
-        
-        <Card className="text-center p-4 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white">
-          <div className="text-2xl font-bold">{stats.pending || 0}</div>
-          <div className="text-sm">Pending</div>
-        </Card>
-        
-        <Card className="text-center p-4 bg-gradient-to-r from-red-500 to-red-600 text-white">
-          <div className="text-2xl font-bold">{stats.rejected || 0}</div>
-          <div className="text-sm">Rejected</div>
-        </Card>
-      </div>
+      {successMessage && <SuccessMessage message={successMessage} onDismiss={() => setSuccessMessage('')} />}
+      {error && <ErrorMessage message={error} onDismiss={() => setError('')} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Report Generator */}
         <Card title="Generate Reports" className="h-fit">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
-              <select
-                value={reportType}
-                onChange={(e) => setReportType(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="applications">Applications Report</option>
-                <option value="students">Students Report</option>
-                <option value="status">Status Report</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-                <input
-                  type="date"
-                  name="start"
-                  value={dateRange.start}
-                  onChange={handleDateRangeChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Certificate Number Range
+              </label>
+              <p className="text-sm text-gray-500 mb-3">
+                Generate report for certificates within a specific range
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">From Certificate</label>
+                  <input
+                    type="text"
+                    name="start"
+                    value={certificateRange.start}
+                    onChange={handleCertificateRangeChange}
+                    placeholder="e.g., CERT2024001"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">To Certificate</label>
+                  <input
+                    type="text"
+                    name="end"
+                    value={certificateRange.end}
+                    onChange={handleCertificateRangeChange}
+                    placeholder="e.g., CERT2024050"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                <input
-                  type="date"
-                  name="end"
-                  value={dateRange.end}
-                  onChange={handleDateRangeChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              
+              <p className="text-xs text-gray-500 mt-2">
+                Leave blank for all certificates. Range is inclusive.
+              </p>
             </div>
 
             <div className="space-y-2">
               <Button 
-                onClick={() => handleGenerateReport('applications-csv')}
+                onClick={handleGenerateReport}
                 className="w-full bg-blue-600 hover:bg-blue-700"
               >
                 📄 Export Applications CSV
               </Button>
               
-              <Button 
-                variant="outline"
-                className="w-full"
-                disabled
-                title="Coming soon"
-              >
-                📊 Generate Detailed Report
-              </Button>
+              <div className="text-center">
+                <span className="text-sm text-gray-500">
+                  {certificateRange.start || certificateRange.end ? 
+                    `Will export ${getApplicationsInCertificateRange().length} applications` : 
+                    'Will export all applications'
+                  }
+                </span>
+              </div>
             </div>
           </div>
         </Card>
 
-        {/* Status Distribution */}
-        <Card title="Application Status Distribution" className="h-fit">
-          <div className="space-y-3">
-            {Object.entries(getStatusDistribution()).map(([status, count]) => (
-              <div key={status} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 capitalize">{status}</span>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">{count}</span>
-                  <span className="text-xs text-gray-400">
-                    ({Math.round((count / stats.total) * 100)}%)
-                  </span>
-                </div>
-              </div>
-            ))}
+        {/* Quick Stats */}
+        <Card title="Quick Statistics" className="h-fit">
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Total Applications</span>
+              <span className="font-bold text-blue-600">{applications.length}</span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Approved Applications</span>
+              <span className="font-bold text-green-600">
+                {applications.filter(app => app.status === 'APPROVED').length}
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Pending Applications</span>
+              <span className="font-bold text-yellow-600">
+                {applications.filter(app => app.status === 'PENDING').length}
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Certificates Issued</span>
+              <span className="font-bold text-purple-600">
+                {applications.filter(app => app.currentCertificateNo).length}
+              </span>
+            </div>
           </div>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Category Distribution */}
-        <Card title="Student Category Distribution">
-          <div className="space-y-3">
-            {Object.entries(getCategoryDistribution()).map(([category, count]) => (
-              <div key={category} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">{category}</span>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">{count}</span>
-                  <span className="text-xs text-gray-400">
-                    ({Math.round((count / students.length) * 100)}%)
-                  </span>
-                </div>
-              </div>
-            ))}
+      {/* Certificate Range Preview */}
+      {(certificateRange.start || certificateRange.end) && (
+        <Card title="Certificate Range Preview" subtitle="Applications within selected certificate range">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">App ID</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Certificate No</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {getApplicationsInCertificateRange().slice(0, 10).map((app) => (
+                  <tr key={app.appId}>
+                    <td className="px-4 py-2 text-sm font-medium text-gray-900">#{app.appId}</td>
+                    <td className="px-4 py-2 text-sm text-gray-900">{app.studentName}</td>
+                    <td className="px-4 py-2 text-sm font-medium text-blue-600">
+                      {app.currentCertificateNo || 'Not assigned'}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        app.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                        app.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {app.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-sm text-gray-900">{app.routeFrom} → {app.routeTo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          {getApplicationsInCertificateRange().length > 10 && (
+            <div className="mt-4 text-center text-sm text-gray-500">
+              Showing 10 of {getApplicationsInCertificateRange().length} applications
+            </div>
+          )}
         </Card>
-
-        {/* Monthly Trends */}
-        <Card title="Monthly Application Trends">
-          <div className="space-y-3">
-            {Object.entries(getMonthlyApplications()).map(([month, count]) => (
-              <div key={month} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">{month}</span>
-                <span className="text-sm text-gray-600">{count} applications</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* Quick Insights */}
-      <Card title="Quick Insights">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <div className="text-2xl font-bold text-blue-600">
-              {students.filter(s => s.applications && s.applications.length > 0).length}
-            </div>
-            <div className="text-sm text-gray-600">Active Applicants</div>
-          </div>
-          
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <div className="text-2xl font-bold text-green-600">
-              {Math.round((stats.approved / stats.total) * 100)}%
-            </div>
-            <div className="text-sm text-gray-600">Approval Rate</div>
-          </div>
-          
-          <div className="text-center p-4 bg-purple-50 rounded-lg">
-            <div className="text-2xl font-bold text-purple-600">
-              {applications.filter(app => app.currentCertificateNo).length}
-            </div>
-            <div className="text-sm text-gray-600">Certificates Issued</div>
-          </div>
-        </div>
-      </Card>
+      )}
     </div>
   );
 };

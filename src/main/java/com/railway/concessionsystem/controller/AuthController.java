@@ -4,12 +4,14 @@ import com.railway.concessionsystem.model.Staff;
 import com.railway.concessionsystem.model.Student;
 import com.railway.concessionsystem.repository.StaffRepository;
 import com.railway.concessionsystem.repository.StudentRepository;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -29,7 +31,7 @@ public class AuthController {
     
     // Student login with ID and DOB
     @PostMapping("/student/login")
-    public ResponseEntity<?> studentLogin(@RequestBody Map<String, String> credentials) {
+    public ResponseEntity<?> studentLogin(@RequestBody Map<String, String> credentials, HttpSession session) {
         String studentId = credentials.get("studentId");
         String dobString = credentials.get("dob");
         
@@ -38,6 +40,10 @@ public class AuthController {
             Optional<Student> student = studentRepository.findById(studentId);
             
             if (student.isPresent() && student.get().getDob().equals(dob)) {
+                // Set session attribute for student
+                session.setAttribute("studentId", studentId);
+                session.setAttribute("userRole", "student");
+                
                 return ResponseEntity.ok().body(Map.of(
                     "message", "Login successful",
                     "student", student.get(),
@@ -54,21 +60,62 @@ public class AuthController {
     
     // Staff login with email and password
     @PostMapping("/staff/login")
-    public ResponseEntity<?> staffLogin(@RequestBody Map<String, String> credentials) {
+    public ResponseEntity<?> staffLogin(@RequestBody Map<String, String> credentials, HttpSession session) {
         String email = credentials.get("email");
         String password = credentials.get("password");
         
         Optional<Staff> staff = staffRepository.findByEmail(email);
         
         if (staff.isPresent() && passwordEncoder.matches(password, staff.get().getPassword())) {
-            return ResponseEntity.ok().body(Map.of(
-                "message", "Login successful",
-                "staff", staff.get(),
-                "role", "staff"
-            ));
+            // ✅ CRITICAL: Set session attributes for staff
+            session.setAttribute("staffEmail", email);
+            session.setAttribute("staffId", staff.get().getId());
+            session.setAttribute("staffName", staff.get().getName());
+            session.setAttribute("staffDepartment", staff.get().getDepartment());
+            session.setAttribute("userRole", "staff");
+            
+            // Debug: Print session info
+            System.out.println("=== STAFF LOGIN DEBUG ===");
+            System.out.println("Staff logged in: " + email);
+            System.out.println("Staff department: " + staff.get().getDepartment());
+            System.out.println("Session ID: " + session.getId());
+            System.out.println("Session attributes set successfully");
+            System.out.println("=== END DEBUG ===");
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Login successful");
+            response.put("staff", staff.get());
+            response.put("role", "staff");
+            response.put("department", staff.get().getDepartment());
+            
+            return ResponseEntity.ok(response);
         }
         
         return ResponseEntity.status(401).body(Map.of("error", "Invalid email or password"));
+    }
+    
+    // Logout endpoint
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpSession session) {
+        session.invalidate();
+        return ResponseEntity.ok(Map.of("message", "Logout successful"));
+    }
+    
+    // Session check endpoint
+    @GetMapping("/check-session")
+    public ResponseEntity<?> checkSession(HttpSession session) {
+        String staffEmail = (String) session.getAttribute("staffEmail");
+        String studentId = (String) session.getAttribute("studentId");
+        String userRole = (String) session.getAttribute("userRole");
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("isAuthenticated", staffEmail != null || studentId != null);
+        response.put("userRole", userRole);
+        response.put("staffEmail", staffEmail);
+        response.put("studentId", studentId);
+        response.put("sessionId", session.getId());
+        
+        return ResponseEntity.ok(response);
     }
     
     // Student registration (optional - if you want students to register themselves)

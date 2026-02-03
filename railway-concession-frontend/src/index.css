@@ -220,3 +220,19 @@ a:hover {
     --border-color: #334155;
   }
 }
+
+/* -------------------------------------------------- */
+/* 🩶 FIX SECTION – Make input text clearly visible   */
+/* -------------------------------------------------- */
+input,
+textarea,
+select {
+  color: #000 !important;
+  background-color: #fff !important;
+  border: 1px solid var(--border-color);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #666 !important;
+}

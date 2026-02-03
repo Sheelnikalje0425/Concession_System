@@ -31,6 +31,10 @@ public class Student {
     private String password; // Hashed password (null initially)
     
     private String category; // SC/ST or null for general students
+
+    @Column(nullable = false)
+    private String department;
+
     
     @OneToMany(mappedBy = "student", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JsonManagedReference // Add this annotation
