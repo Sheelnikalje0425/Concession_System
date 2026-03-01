@@ -4,7 +4,9 @@ import com.railway.concessionsystem.model.Staff;
 import com.railway.concessionsystem.model.Student;
 import com.railway.concessionsystem.repository.StaffRepository;
 import com.railway.concessionsystem.repository.StudentRepository;
-import jakarta.servlet.http.HttpSession;
+import com.railway.concessionsystem.service.OtpService;
+
+import jakarta.servlet.http.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,128 +19,177 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
 public class AuthController {
-    
+
     @Autowired
     private StudentRepository studentRepository;
-    
+
     @Autowired
     private StaffRepository staffRepository;
-    
+
     @Autowired
     private PasswordEncoder passwordEncoder;
-    
-    // Student login with ID and DOB
-    @PostMapping("/student/login")
-    public ResponseEntity<?> studentLogin(@RequestBody Map<String, String> credentials, HttpSession session) {
-        String studentId = credentials.get("studentId");
-        String dobString = credentials.get("dob");
-        
+
+    @Autowired
+    private OtpService otpService;
+
+    // =========================================================
+    // 1️⃣ STUDENT REQUEST OTP (DOB VERIFIED FIRST)
+    // =========================================================
+    @PostMapping("/student/request-otp")
+    public ResponseEntity<?> requestOtp(@RequestBody Map<String, String> request) {
+
+        String studentId = request.get("studentId");
+        String dobString = request.get("dob");
+
         try {
             LocalDate dob = LocalDate.parse(dobString);
-            Optional<Student> student = studentRepository.findById(studentId);
-            
-            if (student.isPresent() && student.get().getDob().equals(dob)) {
-                // Set session attribute for student
-                session.setAttribute("studentId", studentId);
-                session.setAttribute("userRole", "student");
-                
-                return ResponseEntity.ok().body(Map.of(
-                    "message", "Login successful",
-                    "student", student.get(),
-                    "role", "student"
-                ));
+
+            Student student = studentRepository.findById(studentId)
+                    .orElseThrow(() -> new RuntimeException("Student not found"));
+
+            if (!student.getDob().equals(dob)) {
+                return ResponseEntity.status(401)
+                        .body(Map.of("error", "Invalid DOB"));
             }
-            
-            return ResponseEntity.status(401).body(Map.of("error", "Invalid student ID or date of birth"));
-            
+
+            otpService.generateAndSendOtp(studentId);
+
+            return ResponseEntity.ok(Map.of("message", "OTP sent successfully"));
+
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Invalid date format. Use YYYY-MM-DD"));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid request"));
         }
     }
-    
-    // Staff login with email and password
+
+    // =========================================================
+    // 2️⃣ STUDENT VERIFY OTP (FINAL LOGIN)
+    // =========================================================
+    @PostMapping("/student/verify-otp")
+    public ResponseEntity<?> verifyOtp(@RequestBody Map<String, String> request,
+                                       HttpServletRequest httpRequest) {
+
+        String studentId = request.get("studentId");
+        String otp = request.get("otp");
+
+        boolean valid = otpService.verifyOtp(studentId, otp);
+
+        if (!valid) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("error", "Invalid or expired OTP"));
+        }
+
+        // Regenerate session
+        HttpSession oldSession = httpRequest.getSession(false);
+        if (oldSession != null) oldSession.invalidate();
+
+        HttpSession session = httpRequest.getSession(true);
+
+        session.setAttribute("studentId", studentId);
+        session.setAttribute("userRole", "student");
+
+        Student student = studentRepository.findById(studentId).get();
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Login successful",
+                "student", student,
+                "role", "student"
+        ));
+    }
+
+    // =========================================================
+    // 3️⃣ STAFF LOGIN
+    // =========================================================
     @PostMapping("/staff/login")
-    public ResponseEntity<?> staffLogin(@RequestBody Map<String, String> credentials, HttpSession session) {
+    public ResponseEntity<?> staffLogin(@RequestBody Map<String, String> credentials,
+                                        HttpServletRequest request) {
+
         String email = credentials.get("email");
         String password = credentials.get("password");
-        
+
         Optional<Staff> staff = staffRepository.findByEmail(email);
-        
-        if (staff.isPresent() && passwordEncoder.matches(password, staff.get().getPassword())) {
-            // ✅ CRITICAL: Set session attributes for staff
+
+        if (staff.isPresent() &&
+                passwordEncoder.matches(password, staff.get().getPassword())) {
+
+            HttpSession oldSession = request.getSession(false);
+            if (oldSession != null) oldSession.invalidate();
+
+            HttpSession session = request.getSession(true);
+
             session.setAttribute("staffEmail", email);
             session.setAttribute("staffId", staff.get().getId());
-            session.setAttribute("staffName", staff.get().getName());
             session.setAttribute("staffDepartment", staff.get().getDepartment());
             session.setAttribute("userRole", "staff");
-            
-            // Debug: Print session info
-            System.out.println("=== STAFF LOGIN DEBUG ===");
-            System.out.println("Staff logged in: " + email);
-            System.out.println("Staff department: " + staff.get().getDepartment());
-            System.out.println("Session ID: " + session.getId());
-            System.out.println("Session attributes set successfully");
-            System.out.println("=== END DEBUG ===");
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "Login successful");
-            response.put("staff", staff.get());
-            response.put("role", "staff");
-            response.put("department", staff.get().getDepartment());
-            
-            return ResponseEntity.ok(response);
-        }
-        
-        return ResponseEntity.status(401).body(Map.of("error", "Invalid email or password"));
-    }
-    
-    // Logout endpoint
-    @PostMapping("/logout")
-    public ResponseEntity<?> logout(HttpSession session) {
-        session.invalidate();
-        return ResponseEntity.ok(Map.of("message", "Logout successful"));
-    }
-    
-    // Session check endpoint
-    @GetMapping("/check-session")
-    public ResponseEntity<?> checkSession(HttpSession session) {
-        String staffEmail = (String) session.getAttribute("staffEmail");
-        String studentId = (String) session.getAttribute("studentId");
-        String userRole = (String) session.getAttribute("userRole");
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("isAuthenticated", staffEmail != null || studentId != null);
-        response.put("userRole", userRole);
-        response.put("staffEmail", staffEmail);
-        response.put("studentId", studentId);
-        response.put("sessionId", session.getId());
-        
-        return ResponseEntity.ok(response);
-    }
-    
-    // Student registration (optional - if you want students to register themselves)
-    @PostMapping("/student/register")
-    public ResponseEntity<?> studentRegister(@RequestBody Student student) {
-        try {
-            // Check if student already exists
-            if (studentRepository.existsById(student.getId())) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Student ID already exists"));
-            }
-            
-            if (studentRepository.existsByEmail(student.getEmail())) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Email already registered"));
-            }
-            
-            Student savedStudent = studentRepository.save(student);
-            return ResponseEntity.ok().body(Map.of(
-                "message", "Registration successful",
-                "student", savedStudent
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Login successful",
+                    "staff", staff.get(),
+                    "role", "staff"
             ));
-            
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Registration failed: " + e.getMessage()));
         }
+
+        return ResponseEntity.status(401)
+                .body(Map.of("error", "Invalid email or password"));
+    }
+
+    // =========================================================
+    // 4️⃣ GET CURRENT USER (FOR FRONTEND AUTO LOGIN)
+    // =========================================================
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser(HttpServletRequest request) {
+
+        HttpSession session = request.getSession(false);
+
+        if (session == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("error", "Not authenticated"));
+        }
+
+        String role = (String) session.getAttribute("userRole");
+
+        if ("student".equals(role)) {
+            String studentId = (String) session.getAttribute("studentId");
+            Student student = studentRepository.findById(studentId).orElse(null);
+
+            return ResponseEntity.ok(Map.of(
+                    "user", student,
+                    "role", "student"
+            ));
+        }
+
+        if ("staff".equals(role)) {
+            String email = (String) session.getAttribute("staffEmail");
+            Staff staff = staffRepository.findByEmail(email).orElse(null);
+
+            return ResponseEntity.ok(Map.of(
+                    "user", staff,
+                    "role", "staff"
+            ));
+        }
+
+        return ResponseEntity.status(401)
+                .body(Map.of("error", "Not authenticated"));
+    }
+
+    // =========================================================
+    // 5️⃣ LOGOUT
+    // =========================================================
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request,
+                                    HttpServletResponse response) {
+
+        HttpSession session = request.getSession(false);
+        if (session != null) session.invalidate();
+
+        Cookie cookie = new Cookie("JSESSIONID", null);
+        cookie.setPath("/");
+        cookie.setHttpOnly(true);
+        cookie.setMaxAge(0);
+        response.addCookie(cookie);
+
+        return ResponseEntity.ok(Map.of("message", "Logout successful"));
     }
 }

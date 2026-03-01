@@ -28,6 +28,7 @@ public class ReportController {
     // ==========================
     // Generate CSV report (DEPARTMENT FILTERED)
     // ==========================
+<<<<<<< HEAD
     @GetMapping("/applications/csv")
     public ResponseEntity<String> generateApplicationsCSV(HttpSession session) {
 
@@ -35,6 +36,10 @@ public class ReportController {
             return ResponseEntity.status(401).body("Login required");
         }
 
+=======
+    @GetMapping("staff/reports/applications/csv")
+    public ResponseEntity<String> generateApplicationsCSV(Principal principal) {
+>>>>>>> c24595b217a0b5a96d3ad4c1c8545d582d4dd47b
 
         // 1️⃣ Logged-in staff
         String email = (String) session.getAttribute("staffEmail");
