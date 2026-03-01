@@ -27,7 +27,7 @@ public class ReportController {
     // ==========================
     // Generate CSV report (DEPARTMENT FILTERED)
     // ==========================
-    @GetMapping("/applications/csv")
+    @GetMapping("staff/reports/applications/csv")
     public ResponseEntity<String> generateApplicationsCSV(Principal principal) {
 
         // 1️⃣ Logged-in staff
